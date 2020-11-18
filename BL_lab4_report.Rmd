@@ -1,0 +1,281 @@
+---
+title: "BL_lab4"
+author: "Yash Pawar"
+date: "18/05/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment 1.1
+
+The $\phi$ value used in the AR process decides the weight that is to be given to the residual of the previous iteration over the current value. Higher is the $\phi$ value, more is the weight given to the previous iteration. 
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+library(rstan)
+library(knitr)
+
+## AR process
+set.seed(12345)
+# mu = 10
+# sigma_sq = 2
+# T = 200
+
+AR_simul = function(mu, sigma_sq, t, phi){
+  xt = rep(0, t)
+  xt[1] = mu
+
+  for (i in 2:t) {
+    eps = rnorm(1, mean = 0, sd = sqrt(sigma_sq))
+    xt[i] = mu + phi*(xt[i-1] - mu) + eps
+  }
+ return(xt)
+}
+
+x1 = AR_simul(10,2,200,-0.4)
+
+plot(x1, type = "l", main = "AR process for phi = -0.4")
+
+```
+
+## Assignment 1.2
+
+```{r, warning=FALSE, message=FALSE}
+Xt = AR_simul(10,2,200,0.3)
+Yt = AR_simul(10,2,200,0.95)
+
+StanModel = ' 
+data {
+  int<lower=0> N;
+  real y[N];
+}
+  
+parameters {
+  real mu;
+  real phi;
+  real<lower=0> sigma2;
+}
+ 
+model {
+  mu ~ normal(0,100);
+  sigma2 ~ scaled_inv_chi_square(0.01,2);
+  phi ~ normal(0,1);
+  for (n in 2:N)
+    y[n] ~ normal(mu + phi*(y[n-1]-mu), sqrt(sigma2));
+    
+    
+}
+  
+'  
+```
+
+## Assignment 1.2.1 
+
+
+### We can see from the summary of the model for the AR process $Y_t$ that credible intervals for parameter $mu$ are extremely wide and thus there is a lot of uncertainty about the posterior mean. This is due to the fact that $\phi$ values for the AR process is pretty high and thus it deviates from the specified $\mu$. Hence, the MCMC is not able to estimate the true $\mu$. However, the estimation of other parameters seems fine.
+
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+data1 = list(N = length(Yt), y = Yt)
+fit_model_Y = stan(model_code = StanModel,
+                 data = data1,
+                 warmup = 2000,
+                 iter = 4000,
+                 chains = 4,
+                 control = list(adapt_delta = 0.95))
+
+mod1 = extract(fit_model_Y)
+```
+
+```{r, echo=FALSE}
+#fit_model_Y
+kable(summary(fit_model_Y, probs = c(0.025, 0.975))$summary)
+```
+
+### In case of AR process $X_t$ the estimation of the parameters is close to the true values. and the credible intervals for parameter $\mu$ are narrow which tells that there is less uncertainty about the parameters.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE,results='hide'}
+data2 = list(N = length(Xt), y = Xt)
+fit_model_X = stan(model_code = StanModel,
+                 data = data2,
+                 warmup = 2000,
+                 iter = 4000,
+                 chains = 4)
+
+mod2 = extract(fit_model_X)
+```
+
+```{r, echo=FALSE}
+kable(summary(fit_model_X, probs = c(0.025, 0.975))$summary)
+
+```
+
+## Assignment 1.2.2
+
+The number of effective samples for $Y_T$ are very low as compared to the $X_t$ inferring that the convergence in case of $X_t$ is better. It can also be seen from the joint posterior density of $\mu$ and $\phi$ of the AR process $Y_t$ that there is a lot of uncertainty over the parameter $\mu$.
+Whereas, the parameters in the AR process $X_t$ have very less uncertainty and the estimations are better which leads to a better convergence.
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE}
+
+# par_conv = function(values){
+# 
+#   return(cumsum(values)/seq(1, length(values), 1))
+# }
+# 
+# plot(mod1$mu, type = "l", ylab = "mu")
+# points(par_conv(mod1$mu), type = "l", col = 2)
+# 
+# plot(mod2$mu, type = "l", ylab = "mu")
+# points(par_conv(mod2$mu), type = "l", col = 3)
+
+
+
+joint_conv1 = cbind("mu_y" = mod1$mu, "phi_y" = mod1$phi)
+joint_conv2 = cbind("mu_x" = mod2$mu, "phi_x" = mod2$phi)
+
+pairs(joint_conv1, main = "Joint Posterior of mu and phi")
+pairs(joint_conv2, main = "Joint Posterior of mu and phi")
+
+
+```
+
+## Assignment 1.3
+
+```{r, warning=FALSE, message=FALSE}
+
+ct = read.table("campy.dat", header = TRUE)[,1]
+N = length(ct)
+pois_dist = dpois(ct, mean(ct))
+
+
+stan_pois = ' 
+data {
+  int<lower=0> N;
+  int y[N];
+}
+  
+parameters {
+  real mu;
+  real phi;
+  real<lower=0> sigma2;
+  real xt[N];
+}
+ 
+model {
+  mu ~ normal(0,100);
+  sigma2 ~ scaled_inv_chi_square(0.01,2);
+  phi ~ normal(0,1);
+  
+  for (i in 2:N){
+    xt[i] ~ normal(mu + phi*(xt[i-1]-mu), sqrt(sigma2));
+    y[i] ~ poisson(exp(xt[i]));
+  }
+    
+    
+    
+}
+  
+'
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+data_pois = list(N=N, y = ct)
+fit_model_ct = stan(model_code = stan_pois,
+                 data = data_pois,
+                 warmup = 2000,
+                 iter = 4000,
+                 chains = 4)
+
+mod3 = extract(fit_model_ct)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+xt_post = c()
+for (i in 1:length(ct)) {
+  xt_post[i] = mean(mod3$xt[,i])
+}
+
+latent_int = exp(xt_post)
+
+cred_int = t(apply(exp(mod3$xt), MARGIN = 2, quantile, probs = c(0.025, 0.975)))
+
+plot(ct, main = "Plot of data and Posterior Mean")
+points(latent_int, type = "l", col = "Blue")
+points(cred_int[,2], type = "l", col = 2)
+points(cred_int[,1], type = "l", col = 2)
+
+```
+
+
+## Assignment 1.4
+
+An informative prior for $\sigma^2$ has been set. When the model is re-estimated, the 95% credible intervals include most of the data points as opposed to the case with non-informative prior. With an informative prior, the MCMC makes a better estimation of the parameters.
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE, results='hide'}
+stan_pois = ' 
+data {
+  int<lower=0> N;
+  int y[N];
+}
+  
+parameters {
+  real mu;
+  real phi;
+  real<lower=0> sigma2;
+  real xt[N];
+}
+ 
+model {
+  mu ~ normal(0,100);
+  sigma2 ~ scaled_inv_chi_square(1,2);
+  phi ~ normal(0,1);
+  
+  for (i in 2:N){
+    xt[i] ~ normal(mu + phi*(xt[i-1]-mu), sqrt(sigma2));
+    y[i] ~ poisson(exp(xt[i]));
+  }
+    
+    
+    
+}
+  
+'
+
+
+fit_model_ct2 = stan(model_code = stan_pois,
+                 data = data_pois,
+                 warmup = 2000,
+                 iter = 4000,
+                 chains = 4)
+
+mod4 = extract(fit_model_ct2)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+xt_post2 = c()
+for (i in 1:length(ct)) {
+  xt_post2[i] = mean(mod4$xt[,i])
+}
+
+latent_int2 = exp(xt_post2)
+
+cred_int2 = t(apply(exp(mod4$xt), MARGIN = 2, quantile, probs = c(0.025, 0.975)))
+
+plot(ct, main = "Plot of data and Posterior Mean with informative sigma_sq")
+points(latent_int2, type = "l", col = "Blue")
+points(cred_int2[,2], type = "l", col = 2)
+points(cred_int2[,1], type = "l", col = 2)
+
+
+```
+
+## Appendix:
+```{r ref.label=knitr::all_labels(), echo = T, eval = F}
+```
+
+

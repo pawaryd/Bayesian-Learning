@@ -1,0 +1,279 @@
+---
+title: "Computer Lab 1"
+author: "Vyshnavi Pisupati(vyspi394) Yash Pawar(yaspa154)"
+date: "08/04/2020"
+output: pdf_document
+---
+
+```{r ,eval=TRUE,echo=FALSE}
+
+```
+
+# 1.Bernoulli ... again.
+
+## a.Drawing random numbers from Posterior
+
+Assuming a beta posterior $Beta(7,17)$ as per the data given, we sample for the mean and standard deviation and compare them with the true values.
+
+```{r 1a,eval=TRUE,echo=FALSE,fig.align='center',fig.height=3,fig.width=6,warning=FALSE}
+# 1a.Posterior Mean and Standard Deviation convergence
+library(ggplot2)
+#function to draw randomly not necessary but did it
+posterior_random_draws<-function(nDraws){
+  return(rbeta(nDraws,7,17))
+}
+#taking some random number of draws
+draws<-seq(from=5,
+           to=10000,
+           by=50)
+j<-1
+#initialization
+data_mean<-numeric(length(draws))
+data_sd<-numeric(length(draws))
+#Calculating the posterior mean and standard deviation from the data
+for(i in draws){
+  rd<-posterior_random_draws(i)
+  data_mean[j]<-mean(rd)
+  data_sd[j]<-sd(rd)
+  j<-j+1
+}
+#Plotting posterior mean
+plot_df<-data.frame(d=draws,m=data_mean,sd=data_sd)
+ggplot(data = plot_df)+
+  geom_line(aes(x=d,y=m))+
+  geom_hline(yintercept=(7/24), color = "red")+
+  xlab("Draws")+
+  ggtitle(expression(theta))+
+  ylab("Data Mean")+
+  theme_bw()
+#Plotting posterior standard deviation
+ggplot(data = plot_df)+
+  geom_line(aes(x=d,y=sd))+
+  geom_hline(yintercept=(sqrt(119/14400)), color = "red")+
+  xlab("Draws")+
+  ggtitle(expression(sigma))+
+  ylab("Data Standard deviation")+
+  theme_bw()
+```
+
+The red line is the true mean and standard deviation of posterior distributions $\theta|x$.As seen from the as the number of draws increases, the fluctuation around the true mean and standard deviation decreases.Hence we can conclude that as the number of draws increases, the posterior mean and standard deviation converge to the true values. 
+
+## b.Comparing the simulated and theoritical values of $p(\theta>0.3|y)$
+
+```{r 1b,eval=TRUE,echo=FALSE,results='asis'}
+# 1b.p(theta>0.3)
+#Similating and finding the p(theta>0.3)
+rd2<-posterior_random_draws(10000)
+p3<-length(which(rd2>0.3))/10000
+#Theoritical value if p(theta>0.3)
+ep3<-1-pbeta(q = 0.3,
+           shape1 = 7,
+           shape2 = 17)
+cat("The posterior mean for theta>0.3 from simulation:",p3)
+cat("\nThe exact posterior mean for theta>0.3",ep3)
+```
+
+We can see the simulated mean and exact mean values for $\theta$ are very close making the simulation reliable for the estimating the posterior mean of $\theta$.
+
+## c.Posterior Distribution of log odds
+
+```{r 1c,eval=TRUE,echo=FALSE,fig.align='center',fig.height=3,fig.width=6}
+# 1c.calculating log odds
+rd2_logodds<-log(rd2/(1-rd2))
+# Density of log odds
+plot(density(rd2_logodds),
+     main = "Histogram of Log odds of sigma sqaure",
+     xlab=expression(phi == paste(frac(theta, 1-theta))))
+```
+
+The posterior distribution of log-odds looks like a normal distribution ?
+
+# 2 Log-normal distribution and the Gini coefficient.
+
+## a. Simulating from the posterior distribution
+
+### Deriving the posterior distribution.
+
+#### Likelihood from model:
+
+Model:
+
+We have log normal model with known mean $\mu=3.7$ and unknown $\sigma^2$.
+
+$$y_i\sim log(N(\mu,\sigma))=\frac{1}{y_i\sqrt{2\pi\sigma^2}}e^{\frac{-1}{2\sigma^2}(logy_i-\mu)^2}$$
+
+Likelihood:
+
+$$p(y|\sigma^2)=\prod_{i=1}^{n}\frac{1}{y_i\sqrt{2\pi\sigma^2}}e^{\frac{-1}{2\sigma^2}(logy_i-\mu)^2}$$
+
+Say, $\prod_{i=1}^{n}y_i=y$
+
+$$p(y|\sigma^2)=\frac{1}{y(\sqrt{2\pi\sigma^2})^n}e^{\frac{-1}{2\sigma^2}\sum_{i=1}^{n}(logy_i-\mu)^2}$$
+
+Now, taking $\frac{\sum_{i=1}^{n}(logy_i-\mu)^2}{n}=\tau^2$ we get the likelihood to be in the below form.
+
+$$p(y|\sigma^2)\propto\frac{1}{y(\sigma^2)^\frac{n}{2}}e^{\frac{-n\tau^2}{2\sigma^2}}...(1)$$
+
+#### Prior
+
+A non-informative uniform prior distribution of $\sigma^2$ is assumed.
+
+$$p(\sigma^2) \propto \frac{1}{\sigma^2}...(2)$$
+
+#### Posterior
+
+Combining the likelyhood and prior from equation 1 and 2 respectively to get the posterior distribution using Bayes theorem.
+
+$$Posterior\propto Likelyhood.Prior$$
+
+Posterior distribution as below.
+
+$$p(\sigma^2|y)\propto \frac{1}{y(\sigma^2)^{\frac{n}{2}+1}}. e^{\frac{-n\tau^2}{2\sigma^2}}$$
+
+From the given information we know that,
+
+$$\frac{n\tau^2}{\sigma^2}\sim\chi(n)...(3)$$
+
+#### Simulation steps.
+
+Using the result in equation 3, we simulate with the below steps.
+
+1.Drawing 10000 random draws in a vector $X$ from $\chi(n)$ distribution here $n=10$.
+
+2.We estimate $\sigma^2$ using $\sigma^2=\frac{n\tau^2}{X}$, where $X$ is from step 1.
+
+```{r 2a,eval=TRUE,echo=FALSE,fig.align='center',fig.height=4,fig.width=6,warning=FALSE,message=FALSE}
+library(LaplacesDemon)
+# 2a.Similating posterior distribution
+#Data
+y<-c(44,25,45,52,30,63,19,50,34,67)
+n<-length(y)
+y_bar<-mean(y)
+tau_square<-sum((log(y)-3.7)^2)/n
+#Simulating from the posterior distribution
+#Drawing 10000 from chi-sqaured distribution
+x<-rchisq(10000,df=n)
+#estimating sigma square
+sigma_square<-(n*tau_square/x)
+#Density of Theoritical posterior
+theory_sigma_square<-rinvchisq(10000, 
+                               df=n, 
+                               scale=tau_square)
+plot(density(sigma_square),
+     main = "Density of Simulated and Theoritical Posterior",
+     xlab=expression(sigma^2),
+     ylab="Posterior Density",col="red")
+points(density(theory_sigma_square))
+
+```
+
+The theoritical and simulated posterior distribution are almost the same that they appear the same while plotting them but there is slight variation. Hence we can conclude that the simulation is a good approximation of the posterior density and can be used in the cases when $\sigma^2$ is unknown and need to be estimated from the data collected.
+
+## b.Gini coefficient
+
+```{r 2b,eval=TRUE,echo=FALSE,fig.align='center',fig.height=3,fig.width=6}
+# 2b.Gini coefficient for sigma square  
+G=2*pnorm(q=sqrt(sigma_square/2),
+          mean=0,
+          sd=1)-1
+plot(density(G, n = 10000),
+     main = "PDF of G")
+cat("The mean Gini Index",mean(G))
+```
+
+The probability ditribution of Gini coeffiecient resembles that of a $logN(\mu,\sigma^2)$ as seen from the histogram.relate G and sigma and write some inference.The mean of $G$ is close to 0 indicating that the wages are almost equal.
+
+## c.Credible Interval and Highest Posterior Density HPD.
+
+```{r 2c,eval=TRUE,echo=FALSE}
+# 2c.CI and HPDI
+#Credible interval
+credible_interval<-quantile(G,probs=c(0.05,0.95))
+credible_lim = credible_interval[2] - credible_interval[1]
+#Highest Posterior Density HPDI
+density_output<-density(G)
+y_sorted = sort(density_output$y, decreasing = TRUE)
+y_cdf = cumsum(y_sorted)/sum(y_sorted)
+y_ind = min(y_sorted[which(y_cdf<0.9)])
+#q<-quantile(cdf_gini(density_output$y),probs=0.1)
+HPD_interval<-range(density_output$x[which(density_output$y>y_ind)])
+HPD_lim = HPD_interval[2] - HPD_interval[1]
+plot(density(G),
+     main = "PDF of G")
+abline(v=HPD_interval[1],col="red")
+abline(v=HPD_interval[2],col="red")
+abline(v=credible_interval[1],col="blue")
+abline(v=credible_interval[2],col="blue")
+legend("topright",c("HPDI","CI"), col=c("red","blue"))
+
+cat("The range of interval for equal tail credible Interval is", credible_lim)
+cat("\nThe range of interval for HPD Interval is", HPD_lim)
+```
+
+The red vertical line is the Highest Posterior Density(HPDI) and the blue vertical line is the Credible Interval(CI). The Credible Interval is wider than the CI. Hence HPD interval  gives a better approximation of the gini index.
+
+# 3. Bayesian inference for directional data
+
+## a.Plotting the posterior distribution of $\kappa$
+
+Here,we did not solve for the posterior distribution of $\kappa$ and then plot it instead, the posterior was indirectly plotted by calculating the likelyhood and prior for each $\kappa$ and then using the below Bayes rule to obatain the value of its corresponding posterior.
+
+$$Posterior\propto Likelihood.Prior$$
+
+```{r 3a,eval=TRUE,echo=FALSE,warning=FALSE,fig.align='center',fig.height=3,fig.width=6}
+# 3a.Plotting the posterior density
+#Assuming some grid values
+kappas<-seq(from=1,
+            to=10,
+            by=0.01)
+#Wind direction in radians
+y_i<-c(-2.44,2.14,2.54,1.83,2.02,2.33,-2.79,2.23,2.07,2.02)
+#initalizations
+likelihood<-numeric(length(kappas))
+prior<-numeric(length(kappas))
+posterior<-numeric(length(kappas))
+for(i in 1:length(kappas)){
+  #Calculating the prior
+  prior[i]<-exp(-kappas[i])
+  #Calculating the Likelihood
+  likelihood[i]<-1
+  for(j in 1:length(y)){
+    numer<-kappas[i]*cos(y_i[j]-2.39)
+    denom<-2*pi*besselI(x=kappas[i],nu=1)
+    likelihood[i]<-likelihood[i]*exp(numer)/denom
+  }
+  #Calculating the posterior
+  posterior[i]<-likelihood[i]*prior[i]
+}
+plot_df2<-data.frame(k=kappas,p=posterior,l=likelihood,pr=prior)
+ggplot(data = plot_df2)+
+  geom_line(aes(x=k,y=p,colour="Posterior"))+
+  geom_line(aes(x=k,y=l,colour="Likelihood"))+
+  geom_line(aes(x=k,y=pr,colour="Prior"))+
+  xlab(expression(kappa))+
+  ylab("Density")+
+  ylim(0,0.05)+
+  theme_bw()
+```
+
+From the plot, it can beobserved that posterior density is similar to the likelihood density implying that the data has greater influence on the posterior than our prior beliefs.
+
+## b.Posterior Mode
+
+```{r 3b,eval=TRUE,echo=FALSE,results='asis'}
+# 3b. Posterior Mode
+#finding unique posterior values
+uniqp <- unique(posterior)
+#checking which posterior value macthes maximum number of times with the unique values
+posterior_mode<-uniqp[which.max(tabulate(match(posterior,uniqp)))]
+cat("Posterior Mode is",posterior_mode)
+#int_post = floor(posterior) 
+```
+
+The posterior mode gives a point estimate of $\kappa$. Here,$\hat\kappa$ i.e.the point estimate of posterior precision is around 0.00408702 which is close to zero implying that the wind direction is tight around $\mu=3.7$ radians i.e. in the north west direction. This can be seen from data as most of the data points are positive and also the exponential prior is always greater than 0.
+
+# Appendix
+
+```{r ref.label=c('1a','1b','1c','2a','2b','2c','3a','3b'),eval=FALSE,echo=TRUE}
+
+```

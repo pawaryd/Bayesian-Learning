@@ -1,0 +1,400 @@
+---
+title: "BL_Lab3"
+author: "Yash Pawar"
+date: "02/05/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment 1.1
+
+Below is the plot for gibbs sampled posterior $\mu$ and $\sigma$:
+
+It can be seen that both $\mu$ and $\sigma$ coverges to its analytical value within few iterations of the gibbs sampler.
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE,fig.width=12, fig.height=4}
+library(geoR)
+library(knitr)
+library(mvtnorm)
+raindata = read.table("rainfall.dat.txt")
+raindata = as.vector(raindata[,1])
+
+x_bar = mean(raindata)
+sigma_sq = var(raindata)
+
+
+## prior parameters 
+n = length(raindata)
+mu_0 = 10
+sigmasq_0 = 100
+k_0 = 2
+v_0 = 4
+
+
+## Hyperparameter initialization
+
+mu_n = (k_0/(k_0 + n))*mu_0 + (n/(k_0 + n))*x_bar
+k_n = k_0 + n
+v_n = v_0 + n
+
+## Gibbs sampling 
+
+mu_post = c()
+sigmasq_post = c(1400)
+y_post = c()
+
+
+nsim = 1000
+for (i in 1:nsim) {
+  mu_post[i] = rnorm(1,mean = mu_n, sd = sqrt(sigmasq_post[i]/k_n))
+  
+  par1 = (mu_0*sigmasq_0 + sum((raindata - mu_post[i])^2))/v_n
+  sigmasq_post = c(sigmasq_post, rinvchisq(1, v_n, scale = par1))
+  #sigmasq_cum[i] = sigmasq_post/i
+}
+
+cum_mu = cumsum(mu_post)/seq(1,nsim,1)
+sigmasq_cum  = cumsum(sqrt(sigmasq_post))/seq(1,nsim+1,1)
+
+plot(mu_post, type = "l", ylab = "posterior mean")
+points(cum_mu, type = "l", col = "red")
+#plot(density(mu_post))
+plot(sqrt(sigmasq_post), type = "l", ylab = "posterior sigma")
+points(sigmasq_cum, type = "l", col = 4)
+
+
+
+#plot(density(y_post), main = "posterior vs original")
+#points(density(raindata))
+
+```
+
+## Assignment 1.2
+
+The histogram for the raindata:
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Estimating a simple mixture of normals
+# Author: Mattias Villani, IDA, Linkoping University. http://mattiasvillani.com
+
+##########    BEGIN USER INPUT #################
+# Data options
+#data(faithful)
+#rawData <- faithful
+x <- as.matrix(raindata)
+
+# Model options
+nComp <- 2   # Number of mixture components
+
+# Prior options
+alpha <- 10*rep(1,nComp) # Dirichlet(alpha)
+muPrior <- rep(0,nComp) # Prior mean of mu
+tau2Prior <- rep(10,nComp) # Prior std of mu
+sigma2_0 <- rep(var(x),nComp) # s20 (best guess of sigma2)
+nu0 <- rep(2,nComp) # degrees of freedom for prior on sigma2
+
+# MCMC options
+nIter <- 1000 # Number of Gibbs sampling draws
+
+# Plotting options
+plotFit <- TRUE
+lineColors <- c("blue", "green", "magenta", 'yellow')
+sleepTime <- 0.1 # Adding sleep time between iterations for plotting
+################   END USER INPUT ###############
+
+###### Defining a function that simulates from the 
+rScaledInvChi2 <- function(n, df, scale){
+  return((df*scale)/rchisq(n,df=df))
+}
+
+####### Defining a function that simulates from a Dirichlet distribution
+rDirichlet <- function(param){
+  nCat <- length(param)
+  piDraws <- matrix(NA,nCat,1)
+  for (j in 1:nCat){
+    piDraws[j] <- rgamma(1,param[j],1)
+  }
+  piDraws = piDraws/sum(piDraws) # Diving every column of piDraws by the sum of the elements in that column.
+  return(piDraws)
+}
+
+# Simple function that converts between two different representations of the mixture allocation
+S2alloc <- function(S){
+  n <- dim(S)[1]
+  alloc <- rep(0,n)
+  for (i in 1:n){
+    alloc[i] <- which(S[i,] == 1)
+  }
+  return(alloc)
+}
+
+# Initial value for the MCMC
+nObs <- length(x)
+S <- t(rmultinom(nObs, size = 1 , prob = rep(1/nComp,nComp))) # nObs-by-nComp matrix with component allocations.
+mu <- quantile(x, probs = seq(0,1,length = nComp))
+sigma2 <- rep(var(x),nComp)
+probObsInComp <- rep(NA, nComp)
+
+# Setting up the plot
+xGrid <- seq(min(x)-1*apply(x,2,sd),max(x)+1*apply(x,2,sd),length = 100)
+xGridMin <- min(xGrid)
+xGridMax <- max(xGrid)
+mixDensMean <- rep(0,length(xGrid))
+effIterCount <- 0
+ylim <- c(0,2*max(hist(x)$density))
+sigma2_st = matrix(NA, nrow = nIter, ncol = nComp)
+mu_st = matrix(NA, nrow = nIter, ncol = nComp)
+pi_st = c()
+
+for (k in 1:nIter){
+  #message(paste('Iteration number:',k))
+  alloc <- S2alloc(S) # Just a function that converts between different representations of the group allocations
+  nAlloc <- colSums(S)
+  #print(nAlloc)
+  # Update components probabilities
+  pi <- rDirichlet(alpha + nAlloc)
+  pi_st[k] = pi[1]
+  
+  # Update mu's
+  for (j in 1:nComp){
+    precPrior <- 1/tau2Prior[j]
+    precData <- nAlloc[j]/sigma2[j]
+    precPost <- precPrior + precData
+    wPrior <- precPrior/precPost
+    muPost <- wPrior*muPrior + (1-wPrior)*mean(x[alloc == j])
+    tau2Post <- 1/precPost
+    mu[j] <- rnorm(1, mean = muPost, sd = sqrt(tau2Post))
+    mu_st[k,j] = mu[j]
+  }
+  
+  # Update sigma2's
+  for (j in 1:nComp){
+    sigma2[j] <- rScaledInvChi2(1,
+                                df = nu0[j] + nAlloc[j],
+                                scale = (nu0[j]*sigma2_0[j] + sum((x[alloc == j] - mu[j])^2))/(nu0[j] + nAlloc[j]))
+    sigma2_st[k,j] = sigma2[j]
+  }
+  
+  # Update allocation
+  for (i in 1:nObs){
+    for (j in 1:nComp){
+      probObsInComp[j] <- pi[j]*dnorm(x[i], mean = mu[j], sd = sqrt(sigma2[j]))
+    }
+    S[i,] <- t(rmultinom(1, size = 1 , prob = probObsInComp/sum(probObsInComp)))
+  }
+  
+  # Printing the fitted density against data histogram
+  if (plotFit && (k%%1 ==0)){
+    effIterCount <- effIterCount + 1
+    # hist(x, breaks = 20, freq = FALSE, xlim = c(xGridMin,xGridMax),
+    #      main = paste("Iteration number",k), ylim = ylim)
+    mixDens <- rep(0,length(xGrid))
+    components <- c()
+    for (j in 1:nComp){
+      compDens <- dnorm(xGrid,mu[j],sd = sqrt(sigma2[j]))
+      mixDens <- mixDens + pi[j]*compDens
+      # lines(xGrid, compDens, type = "l", lwd = 2, col = lineColors[j])
+      components[j] <- paste("Component ",j)
+    }
+    mixDensMean <- ((effIterCount-1)*mixDensMean + mixDens)/effIterCount
+
+    # lines(xGrid, mixDens, type = "l", lty = 2, lwd = 3, col = 'red')
+    # legend("topright", box.lty = 1, legend = c("Data histogram",components, 'Mixture'),
+    #        col = c("black",lineColors[1:nComp], 'red'), lwd = 2)
+    # Sys.sleep(sleepTime)
+  }
+
+}
+
+cum_sigma_st1 = cumsum(sqrt(sigma2_st[,1]))/seq(1,nIter,1)
+cum_sigma_st2 = cumsum(sqrt(sigma2_st[,2]))/seq(1,nIter,1)
+
+cum_mu_st1 = cumsum(mu_st[,1])/seq(1,nIter,1)
+cum_mu_st2 = cumsum(mu_st[,2])/seq(1,nIter,1)
+
+cum_pi = cumsum(pi_st)/seq(1,nIter,1)
+```
+
+The plot of $\sigma_1$ and  $\sigma_2$: 
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE, fig.width=8}
+plot(sqrt(sigma2_st[,1]), type = "l", ylab = "sigma 1")
+points(cum_sigma_st1, type = "l", col = 2)
+
+plot(sqrt(sigma2_st[,2]), type = "l", ylab = "sigma 2")
+points(cum_sigma_st2, type = "l", col = 3)
+
+```
+
+The plot of $\mu_1$ and $\mu_2$:
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE, fig.width=8}
+plot(mu_st[,1], type = "l", ylab = "mu 1")
+points(cum_mu_st1, type = "l", col = 4)
+
+plot(mu_st[,2], type = "l", ylab = "mu 2")
+points(cum_mu_st2, type = "l", col = 5)
+```
+
+The plot of $\pi$:
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE}
+plot(pi_st, type = "l", ylab = "pi")
+points(cum_pi, type = "l", col = 6)
+```
+
+## Assignment 1.3
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE}
+hist(x, breaks = 20, freq = FALSE, xlim = c(xGridMin,xGridMax), main = "Final fitted density")
+lines(xGrid, mixDensMean, type = "l", lwd = 2, lty = 4, col = "red")
+lines(xGrid, dnorm(xGrid, mean = mean(x), sd = apply(x,2,sd)), type = "l", lwd = 2, col = "blue")
+legend("topright", box.lty = 1, legend = c("Data histogram","Mixture density","Normal density"), col=c("black","red","blue"), lwd = 3)
+
+```
+
+## Assignment 2.1
+
+From the maximum likelihood estimator of $\beta$ it can be seen that the covariate "MinBidShare" is the most significant of all. The covariate is the ratio of minimum selling price to the original book value. It can be interpreted logically that higher is the ratio, higher will be the selling price and it will be less likely for the books to get more number of bids.
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE}
+ebaydata = read.table("eBayNumberOfBidderData.dat", header = TRUE)
+covariates = ebaydata[,2:10]
+response = ebaydata[,1]
+
+max_lik = glm.fit(x = covariates, y = response, family = poisson())
+kable(t(max_lik$coefficients))
+
+```
+
+## Assignment 2.2
+
+The posterior mode $\tilde\beta$ obtained using the optim function is:
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE}
+X_pois = as.matrix(covariates)
+Y_pois = as.matrix(response)
+sigma_pois = 100*(solve(t(X_pois) %*% X_pois))
+
+beta_pois = max_lik$coefficients
+
+logistic_post = function(theta, x, y,Sigma_log){
+    
+    nPara = length(theta)
+    bx = x%*%theta
+    
+    loglik = sum(bx*y - exp(bx))
+    
+    logPrior = dmvnorm(t(theta), matrix(0,nPara,1), Sigma_log, log=TRUE)
+    
+    return(loglik + logPrior)
+}
+
+initval = as.vector(rep(0,dim(X_pois)[2]))
+
+Optim_res = optim(initval,
+                    logistic_post,
+                    gr=NULL,X_pois,Y_pois,sigma_pois,
+                    method=c("BFGS"),
+                    control=list(fnscale=-1),
+                    hessian=TRUE)
+
+beta_opt1 = Optim_res$par
+hes_sigma1 = -solve(Optim_res$hessian)
+
+#beta_post = rmvnorm(1, mean = beta_opt1, sigma = hes_sigma1)
+
+kable(t(beta_opt1))
+
+```
+
+
+## Assignment 2.3
+
+Following is the metropolis hastings function:
+
+```{r, warning=FALSE, message = FALSE}
+
+set.seed(12345)
+metro_hast = function(mh_post, c, ns,...){
+  th_0 = c(1.1, -0.4, 0.1, 0.3, -0.1, -0.4, 0.2, -0.1, -2)
+  #th_0 = rep(1,9)
+  th_mat = matrix(0, nrow = ns, ncol = 9)
+  th_mat[1,] = th_0
+
+  for (i in 2:ns) {
+    th_cur = th_mat[i-1,]
+    th_prop = as.vector(rmvnorm(1 , mean = th_cur, sigma = c*hes_sigma1))
+
+    alp = min(1,exp(mh_post(th_prop,...) - mh_post(th_cur,...)))
+
+    u = runif(1, 0, 1)
+    if (u<alp){
+      th_mat[i,] = th_prop
+    } else{
+      th_mat[i,] = th_mat[i-1,]
+    }
+
+  }
+  return(th_mat)
+}
+
+```
+
+The convergence of MCMC generated from the posterior of beta has been analysed for the $\beta_9$ which corresponds to covariate "MinBidShare".
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE }
+val1_hist = metro_hast(logistic_post,1.8,5000, X_pois, Y_pois, sigma_pois)
+
+val1 = metro_hast(logistic_post,1.4,10000, X_pois, Y_pois, sigma_pois)[,9]
+test2 = cumsum(val1)/seq(1,10000,1)
+
+plot(val1, ylab = "beta", type = "l", main = "Analysis of MCMC convergence")
+points(test2, type = "l", col = 2)
+abline(h = beta_opt1[9], col = "blue")
+
+```
+
+
+## Assignment 2.4
+
+The predictive distribution for the given value of each covariate has been calculated based on the MCMC draws. It can be seen that number of bids = 0 has the highest number of occurences.
+
+```{r,echo=FALSE, warning=FALSE, message = FALSE}
+X1_pois = as.matrix(c(1,1,1,1,0,0,0,1,0.5))
+
+t11 = val1_hist %*% X1_pois
+
+num_bids = c()
+for (i in 1:length(t11)) {
+  num_bids[i] = rpois(1, exp(t11[i]))
+}
+prob_nobids = length(which(num_bids==0))/length(num_bids)
+
+hist(num_bids, ylab = "Frequency of Bids", xlab = "Number of Bids",
+     breaks = 5, main = "Predictive distribution", col = "yellow")
+```
+
+The probablity of having no bids is:
+
+```{r,echo=FALSE}
+prob_nobids
+```
+
+## Appendix:
+```{r ref.label=knitr::all_labels(), echo = T, eval = F}
+```
+
+
+
+
+
+
+
+   
+
